@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0bba9b4d8afcbab439e7c09e389c888c, type: 3}
+  m_Name: UPhys Settings 2D
+  m_EditorClassIdentifier: 
+  _depentrationIteration: 1
+  _killPositionWhenExceedDepentrationIteration: 0
+  _velocityIteration: 3
+  _killPositionWhenExceedVelocityIteration: 1
+  _killRemainedDistanceWhenExceedVelocityIteration: 1
+  _skinWidth: 0.02
