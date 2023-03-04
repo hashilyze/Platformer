@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 
 namespace UPhys2D
@@ -30,8 +31,19 @@ namespace UPhys2D
     {
         #region Public
         public Vector2 Velocity { get => _velocity; set => _velocity = value; }
+        public float MinDistance { get => _minDistance; set => _minDistance = value; }
+        public float Mass { get => _mass; set => _mass = value; }
         public Vector2 CharacterUp => Vector2.up;
 
+        public bool UseGroundSnap { get => _useGroundSnap; set => _useGroundSnap = value; }
+        public float SloopLimit { get => _slopeLimit; set => _slopeLimit = Mathf.Clamp(value, 0.0f, 90.0f); }
+        public float StepOffset { get => _stepOffset; set => _stepOffset = Mathf.Max(0.0f, value); }
+
+        public GroundHitReport GroundReport { get => _groundReport; }
+
+        public LayerMask CollidableMask { get => _collidableMask; set => _collidableMask = value; }
+        public LayerMask BlockMask { get => _blockMask; set => _blockMask = value; }
+        public LayerMask ColliableBlockMask { get => _collidableMask & _blockMask; }
 
         public void Move(Vector2 distance) { }
         public void Teleprot(Vector2 destination) { }
@@ -46,19 +58,26 @@ namespace UPhys2D
 
         public void Simulate(float deltaTime)
         {
-            CacheCurrentMovement();
-            // Overlap recovery
-            SolveOverlap();
+            CacheCurrentTransform();
             // Handle riding
             HandleRiding(deltaTime);
+            // Overlap recovery
+            SolveOverlap();
             // Update Controller
             _controller.UpdateController(deltaTime, this);
             // Move by velocity
-            InternalSafeMoveWithSlide(_velocity * deltaTime);
+            if(_minDistance * _minDistance <= _velocity.sqrMagnitude * deltaTime * deltaTime)
+            {
+                InternalSafeMoveWithSlide(_velocity * deltaTime);
+            }
+            else
+            {
+                _velocity = Vector2.zero;
+            }
             // Probe and snap ground
             ProbeGround(deltaTime);
 
-            CommitNextMovement();
+            ApplyNextTransform();
         }
         #endregion
         #region Private
@@ -68,6 +87,7 @@ namespace UPhys2D
 
         [Header("Base")]
         [ReadOnly][SerializeField] private Vector2 _velocity;
+        [SerializeField] private float _minDistance = 0.1f;
         [SerializeField] private float _mass = 100.0f;
         [Header("Ground Movement")]
         [SerializeField] private bool _useGroundSnap = true;
@@ -92,33 +112,30 @@ namespace UPhys2D
         private Vector2 _initPos;
         private Vector2 _nextPos;
 
+        // Life Cycle Management
         private void Awake ()
         {
-            // Initialzie _rb2d
-            _rb2d = GetComponent<Rigidbody2D>();
-            if (_rb2d == null)
+            // Setup _rb2d
+            if(!TryGetComponent(out _rb2d))
             {
                 Debug.LogError(Utility.TextManager.MakeNullComponentReferenceMessage(_rb2d.GetType()));
             }
             _rb2d.isKinematic = true;
             _rb2d.constraints = RigidbodyConstraints2D.FreezeRotation;
-            // Initialize _body
-            _body = GetComponent<BoxCollider2D>();
-            if (_body == null)
+            // Setup _body
+            if (!TryGetComponent(out _body))
             {
                 Debug.LogError(Utility.TextManager.MakeNullComponentReferenceMessage(_body.GetType()));
             }
             _body.isTrigger = false;
-            // Initialize _collisionHanlder
-            _collisionHandler = GetComponent<CollisionHandler2D>();
-            if (_collisionHandler == null)
+            // Setup _collisionHandler
+            if (!TryGetComponent(out _collisionHandler))
             {
                 Debug.LogError(Utility.TextManager.MakeNullComponentReferenceMessage(_collisionHandler.GetType()));
             }
             _collisionHandler.Setup(_body);
-            // Initialize _controller
-            _controller = GetComponent<CharacterControllerBase2D>();
-            if (_controller == null)
+            // Setup _controller
+            if (!TryGetComponent(out _controller))
             {
                 Debug.LogError(Utility.TextManager.MakeNullComponentReferenceMessage(_controller.GetType()));
             }
@@ -131,20 +148,34 @@ namespace UPhys2D
         {
             UPhysSystem2D.UnregisterCharacter(this);
         }
-
-        private void CacheCurrentMovement ()
+        // Optimizer for transform update
+        private void CacheCurrentTransform ()
         {
             _initPos = _nextPos = _rb2d.position;
         }
-        private void CommitNextMovement ()
+        private void ApplyNextTransform ()
         {
             _rb2d.position = _nextPos;
             transform.position = new Vector3(_nextPos.x, _nextPos.y, transform.position.z);
         }
-
+        // Handle Riding
         private void HandleRiding (float deltaTime)
         {
-            // Validate ridings
+            if (!CanSnapRiding())
+            {
+                return;
+            }
+
+            Vector3 snapDistance = UPhysUtility2D.GetPointVelocity(_riding.velocity, _riding.angularVelocity, _ridingContactPoint - _riding.position) * deltaTime;
+
+            _inHandleRiding = true;
+            InternalSafeMoveWithCollide(snapDistance);
+            _inHandleRiding = false;
+        }
+        private bool CanSnapRiding ()
+        {
+            //return _riding != null;
+
             _riding = null;
             // Ride moving platform
             if (_groundReport.HitAnyGround && _groundReport.IsStable)
@@ -152,24 +183,15 @@ namespace UPhys2D
                 // Ground Object is removed or destoryed 
                 if (_groundReport.Collider == null)
                 {
-                    return;
+                    return false;
                 }
-
                 _riding = _groundReport.Collider.attachedRigidbody;
                 _ridingContactPoint = _groundReport.Point;
+                return true;
             }
-
-            if (_riding != null)
-            {
-                Vector3 snapDistance = _riding.GetPointVelocity(_ridingContactPoint) * deltaTime;
-                //Vector3 snapDistance = (_riding.velocity + Vector3.Cross(_riding.angularVelocity, _ridingContactPoint - _riding.position)) * deltaTime;
-
-                _inHandleRiding = true;
-                InternalSafeMoveWithCollide(snapDistance, out Vector2 _, out RaycastHit2D _);
-                _inHandleRiding = false;
-            }
+            return false;
         }
-
+        // Handle Ground
         private void ProbeGround (float deltaTime)
         {
             if (UpdateForceUngroundTimer(deltaTime))
@@ -247,7 +269,6 @@ namespace UPhys2D
                 }
             }
         }
-
         /// <summary>Update Timer for ForceUnground</summary>
         /// <returns>True when have left time after updated</returns>
         private bool UpdateForceUngroundTimer (float deltaTime)
@@ -265,7 +286,6 @@ namespace UPhys2D
             _groundReport.Angle = 0.0f;
             _groundReport.IsStable = false;
         }
-
         private float GetSnapGroundDistance (float horizontalDist, float verticalDist, float groundAngle)
         {
             float snapDistance = horizontalDist * Mathf.Tan(groundAngle * Mathf.Deg2Rad);
@@ -310,7 +330,7 @@ namespace UPhys2D
                                 // Slided push without projection of distance unless squished
                                 if (Vector2.Angle(-dir, hitInfo.normal) > 5.0f)
                                 {
-                                    Vector2 tangent = GetTangent(dir, hitInfo.normal);
+                                    Vector2 tangent = UPhysUtility2D.GetTangent(dir, hitInfo.normal);
 
                                     float leftDistOnDir = dist - (hitInfo.distance - UPhysSettings2D.Instance.SkinWidth);
                                     float tangentOnDir = Vector2.Dot(tangent, dir);
@@ -318,7 +338,7 @@ namespace UPhys2D
                                     {
                                         float leftDistOnTangent = leftDistOnDir / tangentOnDir;
 
-                                        InternalSafeMoveWithCollide(leftDistOnTangent * tangent, out Vector2 _, out RaycastHit2D _);
+                                        InternalSafeMoveWithCollide(leftDistOnTangent * tangent);
                                     }
                                 }
                             }
@@ -372,7 +392,10 @@ namespace UPhys2D
                 return false;
             }
         }
-
+        private void InternalSafeMoveWithCollide(Vector2 distance)
+        {
+            InternalSafeMoveWithCollide(distance, out Vector2 _, out RaycastHit2D _);
+        }
         /// <summary>Continous movement and slide surface when collide</summary>
         private void InternalSafeMoveWithSlide (Vector3 distance)
         {
@@ -386,7 +409,7 @@ namespace UPhys2D
                 if (InternalSafeMoveWithCollide(nextDistance, out Vector2 remainingDistance, out RaycastHit2D hitInfo))
                 {
                     // Project remaining distance to surface
-                    Vector2 tangent = GetTangent(remainingDistance, hitInfo.normal);
+                    Vector2 tangent = UPhysUtility2D.GetTangent(remainingDistance, hitInfo.normal);
                     nextDistance = Vector3.Dot(tangent, remainingDistance) * tangent;
                     
                     // Don't climbing unstable ground when on stable ground
@@ -424,13 +447,7 @@ namespace UPhys2D
             }
         }
 
-        /// <summary>Surface tanget for direction</summary>
-        private Vector2 GetTangent (Vector2 direction, Vector2 surfaceNormal)
-        {
-            Vector3 rightVector = Vector3.Cross(direction, surfaceNormal);
-            return Vector3.Cross(surfaceNormal, rightVector).normalized;
-        }
-
+        // Filter
         private bool IsValidCollider (Collider2D col)
         {
             // Ignore itself

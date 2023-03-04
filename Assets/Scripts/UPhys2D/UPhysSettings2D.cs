@@ -1,12 +1,11 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using Utility;
 
 namespace UPhys2D
 {
     [CreateAssetMenu(fileName = "UPhys Settings 2D", menuName = "UPHys2D/UPhysSettings2D")]
-    public class UPhysSettings2D : SingletonScriptableObject<UPhysSettings2D>
+    public class UPhysSettings2D : Utility.Singleton.SingletonScriptableObject<UPhysSettings2D>
     {
         // Solve Overlap
         public int DepentrationIteration => _depentrationIteration;

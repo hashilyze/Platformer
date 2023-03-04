@@ -3,17 +3,26 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public class InputBinder : Utility.SingletonComponent<InputBinder>
+public class InputBinder : Utility.Singleton.SingletonComponent<InputBinder>
 {
-    private PlayerController _player;
+    private static readonly List<PlayerController> _players = new List<PlayerController>();
 
-    public void Bind (PlayerController player) { _player = player; }
-    public void Unbind () { _player = null; }
-
+    // Player object storage
+    public static void Possess(PlayerController player) 
+    {
+        if(!_players.Contains(player))
+        {
+            _players.Add(player);
+        }
+    }
+    public static void Unpossess(PlayerController player) 
+    {
+        _players.Remove(player);
+    }
+    // Input adapter
     public void OnMove(InputAction.CallbackContext ctx) 
     { 
-        Vector2 direction = ctx.ReadValue<Vector2>();
-        _player.Move(direction);
+        
     }
     public void OnJump(InputAction.CallbackContext ctx) 
     {
@@ -21,12 +30,18 @@ public class InputBinder : Utility.SingletonComponent<InputBinder>
         {
         case InputActionPhase.Started:
         {
-            _player.Jump();
+            for(int beg = 0, end = _players.Count; beg < end; beg++)
+            {
+
+            }
         }
         break;
         case InputActionPhase.Canceled:
         {
-            _player.StopJump();
+            for (int beg = 0, end = _players.Count; beg < end; beg++)
+            {
+
+            }
         }
         break;
         }
@@ -39,6 +54,15 @@ public class InputBinder : Utility.SingletonComponent<InputBinder>
     {
 
     }
+
+    private void Update ()
+    {
+        for(int beg = 0, end = _players.Count; beg < end; ++beg)
+        {
+            
+        }
+    }
+
 
     protected override void InitializeInstance ()
     {

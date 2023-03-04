@@ -1,42 +1,33 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using Utility;
 
 namespace UPhys2D
 {
-    public class UPhysSystem2D : SingletonComponent<UPhysSystem2D>
+    public class UPhysSystem2D : Utility.Singleton.SingletonComponent<UPhysSystem2D>
     {
+        private static readonly HashSet<PlatformMovement2D> _platforms = new HashSet<PlatformMovement2D>();
+        private static readonly HashSet<CharacterMovement2D> _characters = new HashSet<CharacterMovement2D>();
+
+        // Platform(Movable solid block) Collecting
         public static void RegisterPlatform(PlatformMovement2D platform)
         {
-            if (_platforms.Contains(platform))
-            {
-                return;
-            }
             _platforms.Add(platform);
         }
         public static void UnregisterPlatform(PlatformMovement2D platform)
         {
             _platforms.Remove(platform);
         }
-
+        // Character Collecting
         public static void RegisterCharacter (CharacterMovement2D character)
         {
-            if (_characters.Contains(character))
-            {
-                return;
-            }
             _characters.Add(character);
         }
         public static void UnregisterCharacter (CharacterMovement2D character)
         {
             _characters.Remove(character);
         }
-
-
-        private static readonly List<PlatformMovement2D> _platforms = new List<PlatformMovement2D>();
-        private static readonly List<CharacterMovement2D> _characters = new List<CharacterMovement2D>();
-
+        // Simulation (Integrated Update)
         private void FixedUpdate ()
         {
             float deltaTime = Time.fixedDeltaTime;
@@ -54,14 +45,12 @@ namespace UPhys2D
 
         private void Simulate(float deltaTime)
         {
-            for(int beg = 0, end = _platforms.Count; beg < end; beg++)
+            foreach(PlatformMovement2D platform in _platforms)
             {
-                PlatformMovement2D platform = _platforms[beg];
                 platform.Simulate(deltaTime);
             }
-            for (int beg = 0, end = _characters.Count; beg < end; beg++)
+            foreach(CharacterMovement2D character in _characters)
             {
-                CharacterMovement2D character = _characters[beg];
                 character.Simulate(deltaTime);
             }
         }

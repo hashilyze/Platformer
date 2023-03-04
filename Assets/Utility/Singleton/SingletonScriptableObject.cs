@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace Utility
+namespace Utility.Singleton
 {
     public class SingletonScriptableObject<T> : ScriptableObject where T : SingletonScriptableObject<T>
     {

@@ -1,9 +1,12 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
-namespace Utility
+namespace Utility.Singleton
 {
+    /// <summary>
+    /// Singleton pattern for Component
+    /// Guarantee there is only one component in the scene
+    /// And the GameObject attached it 'don't be destoryed on load'
+    /// </summary>
     public abstract class SingletonComponent<T> : MonoBehaviour where T : SingletonComponent<T>
     {
         private static T _instance;
