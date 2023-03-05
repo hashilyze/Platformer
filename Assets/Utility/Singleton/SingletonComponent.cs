@@ -70,11 +70,11 @@ namespace Utility.Singleton
             EnsureInstance((T)this);
         }
 
-        private void OnApplicationQuit ()
+        protected virtual void OnApplicationQuit ()
         {
             _isShutDown = true;
         }
-        private void OnDestroy ()
+        protected virtual void OnDestroy ()
         {
             _isShutDown = true;
         }

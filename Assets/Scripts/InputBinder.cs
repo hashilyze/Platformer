@@ -21,8 +21,8 @@ public class InputBinder : Utility.Singleton.SingletonComponent<InputBinder>
     }
     // Input adapter
     public void OnMove(InputAction.CallbackContext ctx) 
-    { 
-        
+    {
+        _inputAxis = ctx.ReadValue<Vector2>();
     }
     public void OnJump(InputAction.CallbackContext ctx) 
     {
@@ -32,7 +32,8 @@ public class InputBinder : Utility.Singleton.SingletonComponent<InputBinder>
         {
             for(int beg = 0, end = _players.Count; beg < end; beg++)
             {
-
+                PlayerController player = _players[beg];
+                player.JumpInput();
             }
         }
         break;
@@ -40,26 +41,53 @@ public class InputBinder : Utility.Singleton.SingletonComponent<InputBinder>
         {
             for (int beg = 0, end = _players.Count; beg < end; beg++)
             {
-
+                PlayerController player = _players[beg];
+                player.JumpInputUp();
             }
         }
         break;
         }
     }
-    public void OnAttack(InputAction.CallbackContext ctx) 
-    { 
-
-    }
-    public void OnDash (InputAction.CallbackContext ctx)
+    public void OnAttack(InputAction.CallbackContext ctx)  
     {
-
+        switch (ctx.phase)
+        {
+        case InputActionPhase.Started:
+        {
+            for (int beg = 0, end = _players.Count; beg < end; beg++)
+            {
+                PlayerController player = _players[beg];
+                
+            }
+        }
+        break;
+        }
     }
+    public void OnDash (InputAction.CallbackContext ctx) 
+    {
+        switch (ctx.phase)
+        {
+        case InputActionPhase.Started:
+        {
+            for (int beg = 0, end = _players.Count; beg < end; beg++)
+            {
+                PlayerController player = _players[beg];
+                player.DashInput();
+            }
+        }
+        break;
+        }
+    }
+    
+
+    private Vector2 _inputAxis;
 
     private void Update ()
     {
         for(int beg = 0, end = _players.Count; beg < end; ++beg)
         {
-            
+            PlayerController player = _players[beg];
+            player.MoveInput(_inputAxis);
         }
     }
 

@@ -13,7 +13,10 @@ public class PlayerController : CharacterControllerBase2D
 {
     #region Public
     // Actions for Player Input
-    public void MoveInput (Vector2 direction) { }
+    public void MoveInput (Vector2 direction) 
+    { 
+        _inputAxis= direction;
+    }
     public void MoveInput (float direction) 
     {
         MoveInput(direction * Vector2.right);
@@ -25,38 +28,31 @@ public class PlayerController : CharacterControllerBase2D
 
     // Actions
     public void Move (Vector2 direction) { }
-    public void Move (float direction) { }
     public void Jump () { }
     public void StopJump () { }
     public void Dash () { }
 
     public void Teleport (Vector2 destination) { }
-    public void TeleportUponGround(Vector2 destination, float probeDistance = float.MaxValue) 
-    {
-        // Sweep to bottom
-        // Teleport upon ground if find ground
-    }
-
     #endregion
 
     #region Private
     [Header("Fly")]
-    [SerializeField] private float _maxFlySpeed;
-    [SerializeField] private float _flyAcceleration;
-    [SerializeField] private float _flyDrag;
+    [SerializeField] private float _maxFlySpeed = 5.0f;
+    [SerializeField] private float _flyAcceleration = float.PositiveInfinity;
+    [SerializeField] private float _flyDrag = float.PositiveInfinity;
     [Header("Walk")]
-    [SerializeField] private float _maxSpeed;
-    [SerializeField] private float _acceleration;
-    [SerializeField] private float _firction;
+    [SerializeField] private float _maxSpeed = 5.0f;
+    [SerializeField] private float _acceleration = float.PositiveInfinity;
+    [SerializeField] private float _firction = float.PositiveInfinity;
     [Header("Fall")]
-    [SerializeField] private float _maxFallSpeed;
-    [SerializeField] private float _fallAcceleration;
-    [SerializeField] private float _fallDrag;
+    [SerializeField] private float _maxFallSpeed = 5.0f;
+    [SerializeField] private float _fallAcceleration = float.PositiveInfinity;
+    [SerializeField] private float _fallDrag = float.PositiveInfinity;
     [Header("Gravity")]
     [SerializeField] private bool _useGravity = true;
     [SerializeField] private float _gravity = 40.0f;
     [SerializeField] private float _fallLimit = 25.0f;
-    [SerializeField] private float _fallGravityMultifier = 1.2f; // Enforce grvity when fall
+    [SerializeField] private float _fallGravityMultiplier = 1.2f; // Enforce grvity when fall
     [Header("Jump")]
     [SerializeField] private float _maxJumpHeight = 5.0f;
     [SerializeField] private float _minJumpHeight = 1.0f;
@@ -90,21 +86,27 @@ public class PlayerController : CharacterControllerBase2D
     private void CalculateVelocity (float deltaTime, ref Vector2 velocity)
     {
         // Walking
+        if(_movement.IsGround)
         {
             // Surface Tangent velocity
             Vector2 tangentVelocity = UPhysUtility2D.GetTangent(velocity, _movement.GroundReport.Normal);
             if(_inputAxis.x != 0.0f)
             {
-                Vector2 tangentInput = UPhysUtility2D.GetTangent(Vector2.right, _movement.GroundReport.Normal);
+                Vector2 tangentInput = UPhysUtility2D.GetTangent(_inputAxis.x * Vector2.right, _movement.GroundReport.Normal);
                 velocity = Vector2.Lerp(tangentVelocity, _maxSpeed * tangentInput, 1f - Mathf.Exp(-_acceleration * deltaTime));
             }
             else
             {
                 velocity = Vector2.Lerp(tangentVelocity, Vector2.zero, 1f - Mathf.Exp(-_firction * deltaTime));
+                if(velocity.sqrMagnitude < 0.01f * 0.01f * deltaTime * deltaTime)
+                {
+                    velocity = Vector2.zero;
+                }
             }
 
         }
         // Falling (effected gravity on airbone)
+        else if (_useGravity)
         {
             // Horizontal velocity
             if (_inputAxis.x != 0.0f)
@@ -117,8 +119,9 @@ public class PlayerController : CharacterControllerBase2D
             }
             // Vertical velocity
             ApplyGravity(deltaTime, ref velocity);
-        }
+        } 
         // Flying
+        else if(true)
         {
             if (_inputAxis != Vector2.zero)
             {
@@ -129,18 +132,14 @@ public class PlayerController : CharacterControllerBase2D
                 velocity = Vector2.Lerp(velocity, Vector2.zero, 1f - Mathf.Exp(-_flyDrag * deltaTime));
             }
         }
-        // Swiming
-        {
-
-        }
     }
 
     private void ApplyGravity (float deltaTime, ref Vector2 velocity)
     {
         if (_useGravity)
         {
-            //velocity.y = Mathf.Max(_fallLimit, velocity.y - _gravity * deltaTime * (velocity.y < 0.0f ? _fallGravityMultifier : 1.0f)); // same execution, another style
-            velocity.y -= _gravity * deltaTime * (velocity.y < 0.0f ? _fallGravityMultifier : 1.0f);
+            //velocity.y = Mathf.Max(_fallLimit, velocity.y - _gravity * deltaTime * (velocity.y < 0.0f ? _fallGravityMultiplier : 1.0f)); // same execution, another style
+            velocity.y -= _gravity * deltaTime * (velocity.y < 0.0f ? _fallGravityMultiplier : 1.0f);
             if (velocity.y < _fallLimit)
             {
                 velocity.y = _fallLimit;
@@ -178,6 +177,9 @@ public class PlayerController : CharacterControllerBase2D
 
     public override void UpdateController (float deltaTIme, CharacterMovement2D movement)
     {
-        base.UpdateController(deltaTIme, movement);
+        //base.UpdateController(deltaTIme, movement);
+        Vector2 velocity = movement.Velocity;
+        CalculateVelocity(deltaTIme, ref velocity);
+        movement.Velocity = velocity;
     }
 }

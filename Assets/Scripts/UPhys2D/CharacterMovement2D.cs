@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
 
 namespace UPhys2D
@@ -8,8 +7,7 @@ namespace UPhys2D
     [System.Serializable]
     public struct GroundHitReport
     {
-        public bool HitAnyGround { get => _hitAnyGround; set => _hitAnyGround = value; }
-        public bool IsStable { get => _isStable; set => _isStable = value; }
+        public bool IsGround { get => _isGround; set => _isGround = value; }
 
         public Collider2D Collider { get => _collider; set => _collider = value; }
         public Vector2 Point { get => _point; set => _point = value; }
@@ -17,8 +15,7 @@ namespace UPhys2D
         public float Angle { get => _angle; set => _angle = value; }
         public float Distance { get => _distance; set => _distance = value; }
 
-        [SerializeField] private bool _hitAnyGround;
-        [SerializeField] private bool _isStable;
+        [SerializeField] private bool _isGround;
         [SerializeField] private Collider2D _collider;
         [SerializeField] private Vector2 _point;
         [SerializeField] private Vector2 _normal;
@@ -30,35 +27,56 @@ namespace UPhys2D
     public class CharacterMovement2D : MonoBehaviour
     {
         #region Public
+        // Properties
         public Vector2 Velocity { get => _velocity; set => _velocity = value; }
-        public float MinDistance { get => _minDistance; set => _minDistance = value; }
         public float Mass { get => _mass; set => _mass = value; }
         public Vector2 CharacterUp => Vector2.up;
 
         public bool UseGroundSnap { get => _useGroundSnap; set => _useGroundSnap = value; }
         public float SloopLimit { get => _slopeLimit; set => _slopeLimit = Mathf.Clamp(value, 0.0f, 90.0f); }
         public float StepOffset { get => _stepOffset; set => _stepOffset = Mathf.Max(0.0f, value); }
-
         public GroundHitReport GroundReport { get => _groundReport; }
+        public bool IsGround => _groundReport.IsGround;
 
-        public LayerMask CollidableMask { get => _collidableMask; set => _collidableMask = value; }
+        public LayerMask CharacterMask { get => _characterMask; set => _characterMask = value; }
         public LayerMask BlockMask { get => _blockMask; set => _blockMask = value; }
-        public LayerMask ColliableBlockMask { get => _collidableMask & _blockMask; }
 
-        public void Move(Vector2 distance) { }
-        public void Teleprot(Vector2 destination) { }
+        // Methodes
+        // Physics Queries
+        public bool Sweep (Vector2 pos, Vector2 dir, float dist, out RaycastHit2D closestHit, int layerMask = -1)
+        {
+            return _collisionHandler.Sweep(pos, dir, dist, _hitBuffer, out closestHit, layerMask, IsValidCollider) > 0;
+        }
+        public bool Sweep (Vector2 pos, Vector2 dir, float dist, out RaycastHit2D closestHit)
+        {
+            return Sweep(pos, dir, dist, out closestHit, SweepLayerMask);
+        }
+
+        // Movement 
+        public void Move (Vector2 distance) { }
+        public void Teleprot (Vector2 destination) { }
+        public void TeleportUponGround (Vector2 destination, float snapDistance)
+        {
+            if(_collisionHandler.Sweep(destination, -CharacterUp, snapDistance + UPhysSettings2D.Instance.SkinWidth, _hitBuffer, out RaycastHit2D hit, _blockMask) > 0
+                && EvaluateGround(hit))
+            {
+                destination -= CharacterUp * (hit.distance - UPhysSettings2D.Instance.SkinWidth);
+            }
+            Teleprot(destination);
+        }
 
         /// <summary>Untact from ground until time over</summary>
-        public void ForceUnground(float time)
+        public void ForceUnground (float time)
         {
             _isForceUnground = true;
             _leftUngroundTime = time;
             ClearGroundReport();
         }
 
-        public void Simulate(float deltaTime)
+        public void Simulate (float deltaTime)
         {
             CacheCurrentTransform();
+
             // Handle riding
             HandleRiding(deltaTime);
             // Overlap recovery
@@ -66,14 +84,7 @@ namespace UPhys2D
             // Update Controller
             _controller.UpdateController(deltaTime, this);
             // Move by velocity
-            if(_minDistance * _minDistance <= _velocity.sqrMagnitude * deltaTime * deltaTime)
-            {
-                InternalSafeMoveWithSlide(_velocity * deltaTime);
-            }
-            else
-            {
-                _velocity = Vector2.zero;
-            }
+            InternalSafeMoveWithSlide(_velocity * deltaTime);
             // Probe and snap ground
             ProbeGround(deltaTime);
 
@@ -87,7 +98,6 @@ namespace UPhys2D
 
         [Header("Base")]
         [ReadOnly][SerializeField] private Vector2 _velocity;
-        [SerializeField] private float _minDistance = 0.1f;
         [SerializeField] private float _mass = 100.0f;
         [Header("Ground Movement")]
         [SerializeField] private bool _useGroundSnap = true;
@@ -101,7 +111,7 @@ namespace UPhys2D
         [ReadOnly][SerializeField] private Vector2 _ridingContactPoint;
         private bool _inHandleRiding = false;
         [Header("Misc")]
-        [SerializeField] private LayerMask _collidableMask = -1;
+        [SerializeField] private LayerMask _characterMask = -1;
         [SerializeField] private LayerMask _blockMask = -1;
         // Components
         private Rigidbody2D _rb2d;
@@ -116,7 +126,7 @@ namespace UPhys2D
         private void Awake ()
         {
             // Setup _rb2d
-            if(!TryGetComponent(out _rb2d))
+            if (!TryGetComponent(out _rb2d))
             {
                 Debug.LogError(Utility.TextManager.MakeNullComponentReferenceMessage(_rb2d.GetType()));
             }
@@ -144,7 +154,7 @@ namespace UPhys2D
         {
             UPhysSystem2D.RegisterCharacter(this);
         }
-        private void OnDisable () 
+        private void OnDisable ()
         {
             UPhysSystem2D.UnregisterCharacter(this);
         }
@@ -166,11 +176,15 @@ namespace UPhys2D
                 return;
             }
 
-            Vector3 snapDistance = UPhysUtility2D.GetPointVelocity(_riding.velocity, _riding.angularVelocity, _ridingContactPoint - _riding.position) * deltaTime;
+            //Vector3 snapDistance = UPhysUtility2D.GetPointVelocity(_riding.velocity, _riding.angularVelocity, _ridingContactPoint - _riding.position) * deltaTime;
+            if (_riding.TryGetComponent(out PlatformMovement2D platform))
+            {
+                Vector3 snapDistance = UPhysUtility2D.GetPointVelocity(platform.Velocity, platform.AngularVelocity, _ridingContactPoint - _riding.position) * deltaTime;
 
-            _inHandleRiding = true;
-            InternalSafeMoveWithCollide(snapDistance);
-            _inHandleRiding = false;
+                _inHandleRiding = true;
+                InternalSafeMoveWithCollide(snapDistance);
+                _inHandleRiding = false;
+            }
         }
         private bool CanSnapRiding ()
         {
@@ -178,10 +192,9 @@ namespace UPhys2D
 
             _riding = null;
             // Ride moving platform
-            if (_groundReport.HitAnyGround && _groundReport.IsStable)
+            if (_groundReport.IsGround)
             {
-                // Ground Object is removed or destoryed 
-                if (_groundReport.Collider == null)
+                if (_groundReport.Collider == null || _groundReport.Collider.attachedRigidbody == null)
                 {
                     return false;
                 }
@@ -192,6 +205,36 @@ namespace UPhys2D
             return false;
         }
         // Handle Ground
+        private bool EvaluateGround (RaycastHit2D downHit)
+        {
+            return Vector2.Angle(CharacterUp, downHit.normal) <= _slopeLimit;
+        }
+
+        private void ClearGroundReport ()
+        {
+            _groundReport.IsGround = false;
+
+            _groundReport.Collider = null;
+            _groundReport.Point = Vector2.zero;
+            _groundReport.Distance = 0.0f;
+            _groundReport.Normal = Vector2.zero;
+            _groundReport.Angle = 0.0f;
+        }
+        private void SetGroundReport(RaycastHit2D groundHit, ref GroundHitReport output)
+        {
+            output.IsGround = true;
+
+            output.Collider = groundHit.collider;
+            output.Point = groundHit.point;
+            output.Distance = groundHit.distance;
+            output.Normal = groundHit.normal;
+            output.Angle = Vector2.Angle(CharacterUp, groundHit.normal);
+        }
+        private void SetGroundReport (RaycastHit2D groundHit)
+        {
+            SetGroundReport(groundHit, ref _groundReport);
+        }
+
         private void ProbeGround (float deltaTime)
         {
             if (UpdateForceUngroundTimer(deltaTime))
@@ -200,49 +243,15 @@ namespace UPhys2D
             }
 
             // Before update grounding report, cache previous report; used for checking OnLanded
-            bool wasStable = _groundReport.HitAnyGround && _groundReport.IsStable;
+            bool wasGround = _groundReport.IsGround;
 
             float probeDistance = UPhysSettings2D.Instance.SkinWidth * 2.0f;
-
-            Vector2 movementDistance = _nextPos - _initPos;
-            float horizontalDistance = movementDistance.x;
-            float verticalDistance = movementDistance.y;
-
-            // Snapable ground probing range
-            float maxSnapDistance = 0.0f;
-            if (wasStable)
-            {
-                maxSnapDistance = GetSnapGroundDistance(horizontalDistance, verticalDistance, _slopeLimit);
-            }
-
+            float snapDistance = wasGround ? 0.2f : 0.0f;
             // Cast to downward from bottom of character
-            if (_collisionHandler.Sweep(_nextPos, -CharacterUp, probeDistance + maxSnapDistance, _hitBuffer, out RaycastHit2D closestHit, _collidableMask & _blockMask, IsValidCollider) > 0)
+            if (_collisionHandler.Sweep(_nextPos, -CharacterUp, probeDistance + snapDistance, _hitBuffer, out RaycastHit2D closestHit, _blockMask, IsValidCollider) > 0
+                && EvaluateGround(closestHit))
             {
-                float angle = Vector2.Angle(CharacterUp, closestHit.normal);
-
-                // Accurated snapable range because of ground's angleFor
-                float minSnapDistance = 0.0f;
-                // Don't snap when on steep ramp
-                if (wasStable && angle <= _slopeLimit)
-                {
-                    minSnapDistance = GetSnapGroundDistance(horizontalDistance, verticalDistance, angle);
-                }
-                // Grounded when on ground or snapable
-                if (closestHit.distance <= probeDistance + minSnapDistance)
-                {
-                    _groundReport.HitAnyGround = true;
-
-                    _groundReport.Collider = closestHit.collider;
-                    _groundReport.Point = closestHit.point;
-                    _groundReport.Distance = closestHit.distance;
-                    _groundReport.Normal = closestHit.normal;
-                    _groundReport.Angle = angle;
-                    _groundReport.IsStable = angle <= _slopeLimit;
-                }
-                else
-                {
-                    ClearGroundReport();
-                }
+                SetGroundReport(closestHit);
             }
             else
             {
@@ -251,7 +260,7 @@ namespace UPhys2D
 
             // Events after ground probing
             // On Ground
-            if (_groundReport.HitAnyGround && _groundReport.IsStable)
+            if (_groundReport.IsGround)
             {
                 if (_useGroundSnap)
                 {
@@ -260,12 +269,10 @@ namespace UPhys2D
                 }
 
                 // On Landed (first tick when grounded)
-                if (!wasStable)
+                if (!wasGround)
                 {
                     // Discard vertical velocity
                     _velocity.y = 0.0f;
-
-                    _controller.OnLand();
                 }
             }
         }
@@ -276,16 +283,7 @@ namespace UPhys2D
             return _isForceUnground && (_isForceUnground = (_leftUngroundTime -= deltaTime) > 0.0f);
         }
 
-        private void ClearGroundReport ()
-        {
-            _groundReport.HitAnyGround = false;
-            _groundReport.Collider = null;
-            _groundReport.Point = Vector2.zero;
-            _groundReport.Distance = 0.0f;
-            _groundReport.Normal = Vector2.zero;
-            _groundReport.Angle = 0.0f;
-            _groundReport.IsStable = false;
-        }
+        [System.Obsolete]
         private float GetSnapGroundDistance (float horizontalDist, float verticalDist, float groundAngle)
         {
             float snapDistance = horizontalDist * Mathf.Tan(groundAngle * Mathf.Deg2Rad);
@@ -300,6 +298,8 @@ namespace UPhys2D
         /// <summary>Descrete conllision handle; Depentrate character from blocks</summary>
         private void SolveOverlap ()
         {
+            int layerMask = OverlapLayerMask;
+
             Vector2 backupPosition = _nextPos;
 
             int currentIteration = 0;
@@ -307,7 +307,7 @@ namespace UPhys2D
             while (currentIteration < maxIteration)
             {
                 // If there are overlaped collider with character, detach character from these
-                int overlapCount = _collisionHandler.Overlap(_nextPos, _colliderBuffer, _collidableMask, IsValidCollider);
+                int overlapCount = _collisionHandler.Overlap(_nextPos, _colliderBuffer, layerMask, IsValidCollider);
                 // If no more found overlaped collider
                 if (overlapCount == 0)
                 {
@@ -361,11 +361,13 @@ namespace UPhys2D
         /// <summary>Continous movement until collide</summary>
         private bool InternalSafeMoveWithCollide (Vector2 distance, out Vector2 remainingDistance, out RaycastHit2D hit)
         {
+            int layerMask = SweepLayerMask;
+
             Vector2 direction = distance.normalized;
             float magnitude = distance.magnitude;
             // Character react to obstacles when crush
             if (_collisionHandler.Sweep(_nextPos, direction, magnitude + UPhysSettings2D.Instance.SkinWidth,
-                    _hitBuffer, out RaycastHit2D closestHit, _collidableMask & _blockMask, IsValidCollider) > 0)
+                    _hitBuffer, out RaycastHit2D closestHit, layerMask, IsValidCollider) > 0)
             {
                 hit = closestHit;
                 // Move character until collide
@@ -414,7 +416,7 @@ namespace UPhys2D
                     
                     // Don't climbing unstable ground when on stable ground
                     // Unstable ground is regarded as a wall
-                    if (_groundReport.HitAnyGround && _groundReport.IsStable)
+                    if (_groundReport.IsGround)
                     {
                         if (Vector2.Angle(CharacterUp, hitInfo.normal) > _slopeLimit)
                         {
@@ -446,6 +448,32 @@ namespace UPhys2D
                 }
             }
         }
+
+        private int SweepLayerMask 
+        {
+            get
+            {
+                int layerMask = _blockMask;
+                if (UPhysSettings2D.Instance.CharacterInteraction == ECharacterInteraction.Block)
+                {
+                    layerMask |= _characterMask;
+                }
+                return layerMask;
+            }
+        }
+        private int OverlapLayerMask
+        {
+            get 
+            {
+                int layerMask = _blockMask;
+                if (UPhysSettings2D.Instance.CharacterInteraction != ECharacterInteraction.PassThrough)
+                {
+                    layerMask |= _characterMask;
+                }
+                return layerMask;
+            }
+        }
+
 
         // Filter
         private bool IsValidCollider (Collider2D col)
